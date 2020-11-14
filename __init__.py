@@ -25,14 +25,14 @@ class SvgExportSceneData(PropertyGroup):
 
     @classmethod
     def register(cls):
-        bpy.types.Scene.svg_export = PointerProperty(
+        bpy.types.Scene.blender_to_svg = PointerProperty(
             name="SVG Export Data",
             type=cls,
         )
 
     @classmethod
     def unregister(cls):
-        del bpy.types.Scene.svg_export
+        del bpy.types.Scene.blender_to_svg
 
 
 def transform_vertex(render, mvp, co):
@@ -54,7 +54,7 @@ class SvgExportMesh(Operator):
     bl_description = "Projects the selected mesh to 2D from the scene camera point of view, and render it as SVG"
 
     def execute(self, context):
-        export_data = context.scene.svg_export
+        export_data = context.scene.blender_to_svg
         camera = context.scene.camera
 
         if export_data.output_path == "":
@@ -120,7 +120,7 @@ class SvgExportPanel(Panel):
     bl_context = "scene"
 
     def draw(self, context):
-        export_data = context.scene.svg_export
+        export_data = context.scene.blender_to_svg
         layout = self.layout
 
         layout.prop(export_data, "output_path")
