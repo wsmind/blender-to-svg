@@ -90,7 +90,8 @@ class SvgExportMesh(Operator):
         mesh = context.active_object.data
         vertices = mesh.vertices
 
-        with open(export_data.output_path, "wt") as f:
+        output_path = bpy.path.abspath(export_data.output_path)
+        with open(output_path, "wt") as f:
             f.write("<?xml version=\"1.0\"?>\n")
             f.write(
                 "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n")
