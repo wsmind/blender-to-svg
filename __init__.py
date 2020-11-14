@@ -85,10 +85,18 @@ class SvgExportMesh(Operator):
             scale_y=render.pixel_aspect_y,
         )
 
+        camera_direction = camera.matrix_world @ Vector((0, 0, -1, 0))
+
+        light_direction = Vector((1, -0.4, 0.5))
+        light_direction.normalize()
+
         mvp = projection_matrix @ view_matrix @ context.active_object.matrix_world
 
         mesh = context.active_object.data
         vertices = mesh.vertices
+
+        projected_vertices = list(map(
+            lambda v: transform_vertex(render, mvp, v.co), vertices))
 
         output_path = bpy.path.abspath(export_data.output_path)
         with open(output_path, "wt") as f:
@@ -98,16 +106,33 @@ class SvgExportMesh(Operator):
 
             f.write(
                 f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{render.resolution_x}\" height=\"{render.resolution_y}\">\n")
+
             for edge in mesh.edges:
                 if edge.use_edge_sharp:
-                    v0 = vertices[edge.vertices[0]]
-                    v1 = vertices[edge.vertices[1]]
-
-                    v0 = transform_vertex(render, mvp, v0.co)
-                    v1 = transform_vertex(render, mvp, v1.co)
+                    v0 = projected_vertices[edge.vertices[0]]
+                    v1 = projected_vertices[edge.vertices[1]]
 
                     f.write(
                         f"<line x1=\"{v0[0]}\" y1=\"{v0[1]}\" x2=\"{v1[0]}\" y2=\"{v1[1]}\" style=\"stroke:rgb(0, 0, 0);stroke-width:2\" />\n")
+
+            print(camera_direction)
+            for poly in mesh.polygons:
+                if poly.normal.dot(camera_direction) > 0:
+                    continue
+
+                points = []
+                for loop_index in poly.loop_indices:
+                    loop = mesh.loops[loop_index]
+                    points.append(projected_vertices[loop.vertex_index])
+
+                points = map(lambda point: f"{point[0]},{point[1]}", points)
+                points = " ".join(points)
+
+                diffuse = max(poly.normal.dot(light_direction), 0)
+
+                f.write(
+                    f"<polygon points=\"{points}\" style=\"fill:rgb({80 * diffuse}, {200 * diffuse}, {150 * diffuse})\" />\n")
+
             f.write("</svg>\n")
 
         return {"FINISHED"}
