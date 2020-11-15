@@ -39,13 +39,103 @@ def transform_vertex(render, mvp, co):
     projected_vertex = mvp @ Vector((co.x, co.y, co.z, 1))
 
     clip_space_vertex = (projected_vertex.x / projected_vertex.w,
-                         projected_vertex.y / projected_vertex.w)
+                         projected_vertex.y / projected_vertex.w,
+                         projected_vertex.z / projected_vertex.w)
 
     half_width = render.resolution_x * 0.5
     half_height = render.resolution_y * 0.5
 
-    return (clip_space_vertex[0] * half_width + half_width,
-            -clip_space_vertex[1] * half_height + half_height)
+    return (
+        clip_space_vertex[0] * half_width + half_width,
+        -clip_space_vertex[1] * half_height + half_height,
+        clip_space_vertex[2],
+    )
+
+
+class Face:
+    def __init__(self, points, color):
+        self.points = points
+        self.color = color
+        self.occluders = []
+
+        self.min_bound = list(points[0])
+        self.max_bound = list(points[0])
+        self.centroid = list(points[0])
+
+        for point in points:
+            self.min_bound[0] = min(self.min_bound[0], point[0])
+            self.min_bound[1] = min(self.min_bound[1], point[1])
+            self.min_bound[2] = min(self.min_bound[2], point[2])
+            self.max_bound[0] = max(self.max_bound[0], point[0])
+            self.max_bound[1] = max(self.max_bound[1], point[1])
+            self.max_bound[2] = max(self.max_bound[2], point[2])
+
+            self.centroid[0] += point[0]
+            self.centroid[1] += point[1]
+            self.centroid[2] += point[2]
+
+        self.centroid[0] /= len(points)
+        self.centroid[1] /= len(points)
+        self.centroid[2] /= len(points)
+
+    def compare_depth(self, face):
+        # 2D intersection test
+        if self.min_bound[0] > face.max_bound[0]:
+            return
+        if self.max_bound[0] < face.min_bound[0]:
+            return
+        if self.min_bound[1] > face.max_bound[1]:
+            return
+        if self.max_bound[1] < face.min_bound[1]:
+            return
+
+        # the following should be replaced with a 2D triangle intersection test,
+        # non-linear depth interpolation and compare
+
+        # depth compare
+        if self.min_bound[2] > face.max_bound[2]:
+            self.occluders.append(face)
+            return
+        if self.max_bound[2] < face.min_bound[2]:
+            face.occluders.append(self)
+            return
+
+        # bounding boxes intersect, finer heuristic
+        if self.centroid[2] > face.centroid[2]:
+            self.occluders.append(face)
+        else:
+            face.occluders.append(self)
+        # if self.min_bound[2] > face.min_bound[2]:
+        #     self.occluders.append(face)
+        # else:
+        #     face.occluders.append(self)
+
+    def relative_depth(self):
+        # prevent cycles
+        known_occluders = set()
+
+        new_occluders = set(self.occluders) - known_occluders
+        while len(new_occluders) > 0:
+            occluder = new_occluders.pop()
+            if occluder == self:
+                print("Occlusion cycle detected, output order will be wrong")
+                continue
+            known_occluders.add(occluder)
+            new_occluders |= set(occluder.occluders) - known_occluders
+
+        return len(known_occluders)
+
+    def to_svg(self):
+        points = map(
+            lambda point: f"{point[0]},{point[1]}", self.points)
+        points = " ".join(points)
+
+        # intensity = 255 / (self.relative_depth() * 0.1 + 1)
+        # color = (intensity, intensity, intensity)
+
+        color = self.color
+
+        return f"<polygon points=\"{points}\" style=\"fill:rgb({color[0]}, {color[1]}, {color[2]})\" />\n"
 
 
 class SvgExportMesh(Operator):
@@ -115,23 +205,34 @@ class SvgExportMesh(Operator):
                     f.write(
                         f"<line x1=\"{v0[0]}\" y1=\"{v0[1]}\" x2=\"{v1[0]}\" y2=\"{v1[1]}\" style=\"stroke:rgb(0, 0, 0);stroke-width:2\" />\n")
 
-            print(camera_direction)
-            for poly in mesh.polygons:
-                if poly.normal.dot(camera_direction) > 0:
-                    continue
-
+            def make_face(poly):
                 points = []
                 for loop_index in poly.loop_indices:
                     loop = mesh.loops[loop_index]
                     points.append(projected_vertices[loop.vertex_index])
 
-                points = map(lambda point: f"{point[0]},{point[1]}", points)
-                points = " ".join(points)
-
                 diffuse = max(poly.normal.dot(light_direction), 0)
+                color = (80 * diffuse, 200 * diffuse, 150 * diffuse)
 
-                f.write(
-                    f"<polygon points=\"{points}\" style=\"fill:rgb({80 * diffuse}, {200 * diffuse}, {150 * diffuse})\" />\n")
+                return Face(points, color)
+
+            all_faces = []
+
+            for poly in mesh.polygons:
+                if poly.normal.dot(camera_direction) > 0:
+                    continue
+
+                face = make_face(poly)
+                all_faces.append(face)
+
+            for i in range(len(all_faces) - 1):
+                for j in range(i + 1, len(all_faces)):
+                    all_faces[i].compare_depth(all_faces[j])
+
+            all_faces.sort(key=lambda face: -face.relative_depth())
+
+            for face in all_faces:
+                f.write(face.to_svg())
 
             f.write("</svg>\n")
 
