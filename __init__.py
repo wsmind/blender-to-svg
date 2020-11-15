@@ -53,9 +53,10 @@ def transform_vertex(render, mvp, co):
 
 
 class Face:
-    def __init__(self, points, color):
+    def __init__(self, points, color, edges):
         self.points = points
         self.color = color
+        self.edges = edges
         self.occluders = []
 
         self.min_bound = list(points[0])
@@ -135,7 +136,10 @@ class Face:
 
         color = self.color
 
-        return f"<polygon points=\"{points}\" style=\"fill:rgb({color[0]}, {color[1]}, {color[2]})\" />\n"
+        edges = [
+            f"<line x1=\"{v0[0]}\" y1=\"{v0[1]}\" x2=\"{v1[0]}\" y2=\"{v1[1]}\" style=\"stroke:rgb(0, 0, 0);stroke-width:2\" />\n" for v0, v1 in self.edges]
+
+        return f"<polygon points=\"{points}\" style=\"fill:rgb({color[0]}, {color[1]}, {color[2]})\" />\n" + "\n".join(edges)
 
 
 class SvgExportMesh(Operator):
@@ -197,13 +201,13 @@ class SvgExportMesh(Operator):
             f.write(
                 f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{render.resolution_x}\" height=\"{render.resolution_y}\">\n")
 
+            sharp_edges = {}
             for edge in mesh.edges:
                 if edge.use_edge_sharp:
                     v0 = projected_vertices[edge.vertices[0]]
                     v1 = projected_vertices[edge.vertices[1]]
 
-                    f.write(
-                        f"<line x1=\"{v0[0]}\" y1=\"{v0[1]}\" x2=\"{v1[0]}\" y2=\"{v1[1]}\" style=\"stroke:rgb(0, 0, 0);stroke-width:2\" />\n")
+                    sharp_edges[edge.key] = (v0, v1)
 
             def make_face(poly):
                 points = []
@@ -214,7 +218,10 @@ class SvgExportMesh(Operator):
                 diffuse = max(poly.normal.dot(light_direction), 0)
                 color = (80 * diffuse, 200 * diffuse, 150 * diffuse)
 
-                return Face(points, color)
+                edges = [sharp_edges[key]
+                         for key in poly.edge_keys if key in sharp_edges]
+
+                return Face(points, color, edges)
 
             all_faces = []
 
